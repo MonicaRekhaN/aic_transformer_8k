@@ -10,3 +10,6 @@ Jinja2
 numpy
 scikit-learn
 pandas
+pytest
+pylint
+awsebcli
