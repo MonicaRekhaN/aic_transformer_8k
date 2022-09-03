@@ -1,16 +1,10 @@
-import string
+# from globals import *
 import numpy as np
 import pandas as pd 
 from numpy import array
 from PIL import Image
-import pickle
-import keras
-import sys, time, os, warnings 
-warnings.filterwarnings("ignore")
 from pickle import load
-import re
 import tensorflow as tf
-from tqdm import tqdm
 from keras_preprocessing.sequence import pad_sequences
 from keras.models import Model
 from keras.layers import Input
@@ -23,37 +17,45 @@ from keras_preprocessing.image import load_img, img_to_array
 from keras_preprocessing.text import Tokenizer
 from keras.applications.resnet import ResNet50
 
-num_layer = 4
-d_model = 512
-dff = 2048
-num_heads = 8
-row_size = 7
-col_size = 7
-top_k=5000
-target_vocab_size = top_k + 1 # top_k = 5000
-dropout_rate = 0.1
 
-
-
-# transformer()
-# transformer.built=True
-# transformer.built=True
-# transformer.load_weights('model.h5')
-#Building a Word embedding for top 5000 words in the captions
-tokenizer = tf.keras.preprocessing.text.Tokenizer(num_words=top_k,
-                                                  oov_token="<unk>",
-                                                  filters='!"#$%&()*+.,-/:;=?@[\]^_`{|}~ ')
-pkl_tokenizer_file=r"C:\Model Deployment\New folder\ImageCaptioning-FastAPI-WIP\encoded_tokenizer.pkl"
-# Load the tokenizer train features to disk
-with open(pkl_tokenizer_file, "rb") as encoded_pickle:
-    tokenizer = load(encoded_pickle)
-#Image Model
-image_model = ResNet50(include_top=False,weights='imagenet',input_shape=(224, 224,3),pooling="avg")
-new_input = image_model.input
-hidden_layer = image_model.layers[-2].output
-
-image_features_extract_model = tf.keras.Model(new_input, hidden_layer)
-
+def initialize():
+    num_layer = 4
+    d_model = 512
+    dff = 2048
+    num_heads = 8
+    row_size = 7
+    col_size = 7
+    top_k=5000
+    target_vocab_size = top_k + 1 # top_k = 5000
+    dropout_rate = 0.1
+    global tokenizer,image_features_extract_model,transformer,output,dec_mask
+    global start_token,decoder_input,end_token
+    #Building a Word embedding for top 5000 words in the captions
+    tokenizer = tf.keras.preprocessing.text.Tokenizer(num_words=top_k,
+                                                    oov_token="<unk>",
+                                                    filters='!"#$%&()*+.,-/:;=?@[\]^_`{|}~ ')
+    pkl_tokenizer_file="encoded_tokenizer.pkl"
+    # Load the tokenizer train features to disk
+    with open(pkl_tokenizer_file, "rb") as encoded_pickle:
+        tokenizer = load(encoded_pickle)
+    #Image Model
+    image_model = ResNet50(include_top=False,weights='imagenet',input_shape=(224, 224,3),pooling="avg")
+    new_input = image_model.input
+    hidden_layer = image_model.layers[-2].output
+    print("in init")
+    image_features_extract_model = tf.keras.Model(new_input, hidden_layer)
+    transformer = Transformer(num_layer,d_model,num_heads,dff,row_size,
+                    col_size,target_vocab_size,max_pos_encoding=target_vocab_size,rate=dropout_rate)
+    # transformer()
+    start_token = tokenizer.word_index['<start>']
+    end_token = tokenizer.word_index['<end>']
+    decoder_input = [start_token]
+    output = tf.expand_dims(decoder_input, 0) #token
+    dec_mask = create_masks_decoder(output)
+    test = tf.random.Generator.from_seed(123)
+    test = test.normal(shape=(16,49,2048))
+    transformer(test,output,False,dec_mask)
+    transformer.load_weights('model.h5')
 
 def create_masks_decoder(tar):
   look_ahead_mask = create_look_ahead_mask(tf.shape(tar)[1])
@@ -95,7 +97,7 @@ class Transformer(tf.keras.Model):
     
     final_output = self.final_layer(dec_output)  # (batch_size, tar_seq_len, target_vocab_size)
     
-    return final_output, attention_weights
+    return final_output
 """ Decoder take the Word emdedding as input adds the Postion encoding to it and build a new embedding
 New embedding is passed to the Decoder layer . Two key calcualtions happen in DecoderLayer
 1. Calculation of Attention weights for New Word embedding 
@@ -376,30 +378,29 @@ def get_angles(pos, i, d_model):
    return pos * angle_rates
 def load_image(image_path):
     img = tf.io.read_file(image_path)
+    # print(img)
     img = tf.image.decode_jpeg(img, channels=3)
     img = tf.image.resize(img, (224, 224))
+    # print(img)
     return img, image_path
-def evaluate(image,transformer):
-
+# from globals import initialize
+def evaluate(image):
+  # global tokenizer,image_features_extract_model,transformer
   temp_input = tf.expand_dims(load_image(image)[0], 0)
   img_tensor_val = image_features_extract_model(temp_input)
   img_tensor_val = tf.reshape(img_tensor_val, (img_tensor_val.shape[0], -1, img_tensor_val.shape[3]))
-  
   start_token = tokenizer.word_index['<start>']
   end_token = tokenizer.word_index['<end>']
-   
-  #decoder input is start token.
   decoder_input = [start_token]
-  output = tf.expand_dims(decoder_input, 0) #tokens
-  result = [] #word list
+  output = tf.expand_dims(decoder_input, 0) #token
   dec_mask = create_masks_decoder(output)
-  transformer(img_tensor_val,output,False,dec_mask)
-  transformer.load_weights('model.h5')
+  result = [] #word list
+  
   for i in range(100):
       dec_mask = create_masks_decoder(output)
   
       # predictions.shape == (batch_size, seq_len, vocab_size)
-      predictions, attention_weights = transformer(img_tensor_val,output,False,dec_mask)
+      predictions = transformer(img_tensor_val,output,False,dec_mask)
       
       # select the last word from the seq_len dimension
       predictions = predictions[: ,-1:, :]  # (batch_size, 1, vocab_size)
@@ -407,10 +408,10 @@ def evaluate(image,transformer):
       predicted_id = tf.cast(tf.argmax(predictions, axis=-1), tf.int32)
       # return the result if the predicted_id is equal to the end token
       if predicted_id == end_token:
-          return result,tf.squeeze(output, axis=0), attention_weights
+          return result
       # concatentate the predicted_id to the output which is given to the decoder
       # as its input.
       result.append(tokenizer.index_word[int(predicted_id)])
       output = tf.concat([output, predicted_id], axis=-1)
 
-  return result,tf.squeeze(output, axis=0), attention_weights
+  return result
