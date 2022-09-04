@@ -30,8 +30,7 @@ import io
 import numpy as np
 from keras.preprocessing import image, sequence
 from keras_preprocessing.sequence import pad_sequences
-from keras.utils.image_utils import img_to_array,load_img
-   
+from keras.utils.image_utils import img_to_array,load_img  
 
 
 
@@ -87,10 +86,9 @@ async def form_post(request: Request,file: UploadFile = File(...)):
     result_join = ' '.join(caption)
     result_final = result_join.rsplit(' ', 1)[0]
     print(result_final)
-    return templates.TemplateResponse('after.html', context={'request': request,'data': result_final,'img_data': uri})
+    print(result_join)
+    return templates.TemplateResponse('after.html', context={'request': request,'data': result_join,'img_data': uri})
     
 if __name__ == "__main__":
     functions.initialize()
-    uvicorn.run(app, host="127.0.0.1", port=5000)
-
-
+    uvicorn.run(app, host="127.0.0.1", port=8000)
