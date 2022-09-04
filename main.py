@@ -30,8 +30,7 @@ import io
 import numpy as np
 from keras.preprocessing import image, sequence
 from keras_preprocessing.sequence import pad_sequences
-from keras.utils.image_utils import img_to_array,load_img
-   
+from keras.utils.image_utils import img_to_array,load_img  
 
 
 
@@ -93,5 +92,8 @@ async def form_post(request: Request,file: UploadFile = File(...)):
 if __name__ == "__main__":
     functions.initialize()
     uvicorn.run(app, host="127.0.0.1", port=8000)
+<<<<<<< HEAD
 
 
+=======
+>>>>>>> 005ce66b2bfff6c0d039dc4e436044dc29989db4
